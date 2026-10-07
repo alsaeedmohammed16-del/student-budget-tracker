@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pocket — Student budget tracker</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-icon">p.</span> pocket<span class="brand-dot">●</span></a>
+    <p class="sidebar-label">YOUR MONEY, MADE CLEAR</p>
+    <a class="nav-item active" href="{{ url_for('dashboard', month=month) }}"><span aria-hidden="true">▦</span> Overview</a>
+    <a class="nav-item" href="#monthly-income"><span aria-hidden="true">↓</span> Monthly income</a>
+    <a class="nav-item" href="#transactions"><span aria-hidden="true">↔</span> Transactions</a>
+    <a class="nav-item" href="#budget"><span aria-hidden="true">◎</span> Monthly budget</a>
+    <div class="sidebar-note"><span class="note-symbol">↗</span><strong>Small habits.<br>More breathing room.</strong><p>A little clarity goes a long way when you're a student.</p></div>
+    <div class="local-tag"><span></span> Saved on this device</div>
+  </aside>
+  <main>
+    <header class="page-header">
+      <div><p class="eyebrow">STUDENT BUDGET TRACKER</p><h1>A little more in control.</h1><p class="subtitle">Know what came in, what went out, and what's left.</p></div>
+      <form method="get" class="month-picker"><label for="month">Viewing month</label><div><input id="month" type="month" name="month" value="{{ month }}" min="1900-01" max="2100-12" required><button class="small-button" type="submit">Go <span aria-hidden="true">→</span></button></div></form>
+    </header>
+    {% if config.get('DEMO_MODE') %}<div class="flash" role="status">Demo preview · These are fictional transactions. The project starts empty when you run it yourself.</div>{% endif %}
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+      <div class="flash {{ category }}" role="status">{{ message }}</div>
+    {% endfor %}
+    <section class="summary-grid" aria-label="Monthly summary">
+      <article class="summary-card balance"><div class="card-label">Monthly balance <span aria-hidden="true">↗</span></div><strong>{{ (income - expenses)|money }}</strong><p>Income minus expenses · {{ month_label }}</p></article>
+      <article class="summary-card"><div class="card-label">Money in <span class="pill income-icon" aria-hidden="true">↓</span></div><strong>{{ income|money }}</strong><p>Total income this month</p></article>
+      <article class="summary-card"><div class="card-label">Money out <span class="pill expense-icon" aria-hidden="true">↑</span></div><strong>{{ expenses|money }}</strong><p>Total expenses this month</p></article>
+    </section>
+    <div class="main-grid">
+      <div class="main-column">
+        <section class="panel monthly-income-panel" id="monthly-income">
+          <div class="section-heading"><div><p class="eyebrow">START WITH WHAT COMES IN</p><h2>Monthly income</h2></div><span class="tag">{{ month_label }}</span></div>
+          <p class="income-intro">Add your salary, student loan or other income for this month.</p>
+          <div class="income-recorded"><span>Income recorded for {{ month_label }}</span><strong>{{ income|money }}</strong></div>
+          <form action="{{ url_for('add_transaction') }}" method="post" id="monthly-income-form">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+            <input type="hidden" name="month" value="{{ month }}">
+            <input type="hidden" name="kind" value="income">
+            <input type="hidden" name="description" value="Monthly income">
+            <div class="income-fields">
+              <div><label for="monthly-income-amount">Income amount (£)</label><input id="monthly-income-amount" name="amount" type="number" min="0.01" max="1000000" step="0.01" placeholder="e.g. 1200.00" required></div>
+              <div><label for="monthly-income-source">Income source</label><select id="monthly-income-source" name="category" required>{% for category in income_categories %}<option value="{{ category }}" {% if category == 'Part-time work' %}selected{% endif %}>{{ category }}</option>{% endfor %}</select></div>
+              <div><label for="monthly-income-date">Date received</label><input id="monthly-income-date" name="occurred_on" type="date" min="{{ month }}-01" max="{{ month_last_day }}" value="{{ today if today[:7] == month else month + '-01' }}" required></div>
+            </div>
+            <button class="primary-button income-submit" type="submit">Add monthly income <span aria-hidden="true">↓</span></button>
+            <p class="helper">Each save adds an income entry and updates your balance. Add each payment once; you can remove it in Transactions below.</p>
+          </form>
+        </section>
+        <section class="panel budget-panel" id="budget">
+          <div class="section-heading"><div><p class="eyebrow">MAKE A PLAN</p><h2>Your monthly budget</h2></div><span class="tag">{{ month_label }}</span></div>
+          {% if budget is not none %}
+            <div class="budget-numbers"><strong>{{ expenses|money }} <span>of {{ budget|money }} spent</span></strong><span class="budget-status {% if remaining < 0 %}over{% endif %}">{% if remaining < 0 %}{{ (-remaining)|money }} over budget{% else %}{{ remaining|money }} left{% endif %}</span></div>
+            <div class="progress-track" role="img" aria-label="{{ expenses|money }} spent out of a {{ budget|money }} budget"><div class="progress-fill {% if remaining < 0 %}over-fill{% endif %}" style="width:{{ ([usage or 0, 100]|min) if budget else (100 if expenses else 0) }}%"></div></div>
+            <p class="helper">{% if budget == 0 %}Your spending limit is £0.00.{% elif remaining < 0 %}You've passed your spending limit. Review your expenses below.{% else %}{{ usage }}% of your spending limit used.{% endif %} Your budget covers expenses only.</p>
+          {% else %}
+            <p class="budget-empty">Give your money a plan.</p><p class="helper">Set a spending limit for {{ month_label }} to see how much room you have left.</p>
+          {% endif %}
+          <form action="{{ url_for('set_budget') }}" method="post" class="budget-form">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}"><input type="hidden" name="month" value="{{ month }}">
+            <label for="budget-amount">Monthly spending limit (£)</label><div class="inline-input"><input id="budget-amount" name="amount" type="number" min="0" max="1000000" step="0.01" placeholder="e.g. 1000.00" value="{{ '%.2f'|format(budget / 100) if budget is not none else '' }}" required><button type="submit" class="secondary-button">Save budget</button></div>
+          </form>
+        </section>
+        <div class="insights-grid">
+          <section class="panel"><div class="section-heading"><div><p class="eyebrow">THE BREAKDOWN</p><h2>Where it goes</h2></div></div>
+            {% if categories %}<div class="category-list">{% for category in categories %}<div class="category-row"><div><span>{{ category.name }}</span><strong>{{ category.total|money }}</strong></div><div class="category-track"><div style="width:{{ category.share }}%"></div></div></div>{% endfor %}</div>
+            {% else %}<div class="empty-state compact"><span aria-hidden="true">◎</span><p>No spending yet.</p><small>Add an expense to see your category breakdown.</small></div>{% endif %}
+          </section>
+          <section class="panel"><div class="section-heading"><div><p class="eyebrow">THE BIGGER PICTURE</p><h2>Six-month view</h2></div></div>
+            <div class="legend"><span><i class="in-key"></i> Income</span><span><i class="out-key"></i> Expenses</span></div>
+            <div class="trend-chart" role="img" aria-label="Income and expenses for the six months ending {{ month_label }}">
+              {% for item in trend %}<div class="trend-column"><div class="bar-pair"><div class="trend-bar in-bar" style="height:{{ item.income / scale * 100 }}%" title="{{ item.month }} income: {{ item.income|money }}"></div><div class="trend-bar out-bar" style="height:{{ item.expense / scale * 100 }}%" title="{{ item.month }} expenses: {{ item.expense|money }}"></div></div><span>{{ item.label }}</span></div>{% endfor %}
+            </div>
+            <details class="chart-data"><summary>View exact figures</summary><table><caption class="sr-only">Six-month income and expenses</caption><thead><tr><th>Month</th><th>Income</th><th>Expenses</th></tr></thead><tbody>{% for item in trend %}<tr><td>{{ item.month }}</td><td>{{ item.income|money }}</td><td>{{ item.expense|money }}</td></tr>{% endfor %}</tbody></table></details>
+          </section>
+        </div>
+        <section class="panel transaction-panel" id="transactions"><div class="section-heading"><div><p class="eyebrow">THE DAY TO DAY</p><h2>Transactions</h2></div><span class="tag">{{ transactions|length }} entries</span></div>
+          {% if transactions %}<div class="table-scroll"><table><caption class="sr-only">Transactions for {{ month_label }}</caption><thead><tr><th>Description</th><th>Date</th><th class="align-right">Amount</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>{% for transaction in transactions %}<tr><td><div class="transaction-name">{{ transaction.description }}</div><span class="category-tag">{{ transaction.category }}</span></td><td class="date-cell">{{ transaction.occurred_on[8:10] }}/{{ transaction.occurred_on[5:7] }}/{{ transaction.occurred_on[:4] }}</td><td class="amount align-right {{ transaction.kind }}">{{ '+' if transaction.kind == 'income' else '−' }}{{ transaction.amount_cents|money }}</td><td><form method="post" action="{{ url_for('delete_transaction', transaction_id=transaction.id) }}" class="delete-form"><input type="hidden" name="csrf_token" value="{{ session.csrf_token }}"><input type="hidden" name="month" value="{{ month }}"><button class="delete-button" type="submit" aria-label="Delete {{ transaction.description }}" title="Delete transaction">×</button></form></td></tr>{% endfor %}</tbody></table></div>
+          {% else %}<div class="empty-state"><span aria-hidden="true">↔</span><p>Your month starts here.</p><small>Add your first income or expense using the form.</small></div>{% endif %}
+        </section>
+      </div>
+      <aside class="form-column"><section class="panel add-panel"><div class="section-heading"><div><p class="eyebrow">KEEP IT UP TO DATE</p><h2>Add a transaction</h2></div><span class="plus-mark" aria-hidden="true">+</span></div>
+        <form action="{{ url_for('add_transaction') }}" method="post" id="transaction-form">
+          <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}"><input type="hidden" name="month" value="{{ month }}">
+          <fieldset class="type-picker"><legend class="sr-only">Transaction type</legend><label><input type="radio" name="kind" value="expense" checked><span>↑ Expense</span></label><label><input type="radio" name="kind" value="income"><span>↓ Income</span></label></fieldset>
+          <label for="amount">Amount (£)</label><input id="amount" class="amount-input" type="number" name="amount" min="0.01" max="1000000" step="0.01" placeholder="0.00" required>
+          <label for="description">Description</label><input id="description" name="description" maxlength="100" placeholder="e.g. Weekly food shop" required>
+          <label for="category">Category</label><select id="category" name="category" required><optgroup label="Expenses" data-kind="expense">{% for category in expense_categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</optgroup><optgroup label="Income" data-kind="income">{% for category in income_categories %}<option value="{{ category }}" disabled>{{ category }}</option>{% endfor %}</optgroup></select>
+          <label for="occurred-on">Date</label><input id="occurred-on" name="occurred_on" type="date" min="1900-01-01" max="2100-12-31" value="{{ today if today[:7] == month else month + '-01' }}" required>
+          <button class="primary-button" type="submit">Add transaction <span aria-hidden="true">→</span></button>
+          <p class="helper form-helper">Entries are saved automatically in your local database.</p>
+        </form>
+      </section><div class="gentle-note"><span aria-hidden="true">✳</span><p><strong>Start with the essentials.</strong><br>Add your rent, student loan and regular costs. The small things can follow.</p></div></aside>
+    </div>
+    <footer>Pocket · A student project built with Python, Flask & SQLite <span>GBP · Local workspace</span></footer>
+  </main>
+</body>
+</html>
